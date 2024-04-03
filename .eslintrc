@@ -1,0 +1,23 @@
+{
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/eslint-recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "plugins": [
+    "@typescript-eslint",
+    "prettier"
+  ],
+  "rules": {
+    // "@typescript-eslint/restrict-plus-operands": "error",
+    "@typescript-eslint/no-var-requires": 0,
+    "@typescript-eslint/interface-name-prefix": 0,
+    "no-async-promise-executor": 1,
+    "@typescript-eslint/explicit-function-return-type": 0,
+    "@typescript-eslint/indent": 0,
+    "no-console": "warn",
+    "@typescript-eslint/explicit-module-boundary-types": 0,
+    "@typescript-eslint/restrict-plus-operands": "off"
+  }
+}

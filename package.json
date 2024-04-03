@@ -1,0 +1,50 @@
+{
+  "name": "fidlezer",
+  "version": "0.0.1",
+  "description": "Tests runner",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "jest --no-cache --config jestconfig.json",
+    "build": "tsc",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run lint",
+    "preversion": "npm run lint",
+    "semantic-release": "semantic-release"
+  },
+  "keywords": [
+    "API",
+    "TESTING"
+  ],
+  "author": "Gatis Linters",
+  "license": "ISC",
+  "files": [
+    "lib/**/*"
+  ],
+  "devDependencies": {
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/gitlab": "^9.3.0",
+    "@semantic-release/npm": "^9.0.1",
+    "@types/express": "^4.17.13",
+    "@types/jest": "^29.5.6",
+    "@typescript-eslint/eslint-plugin": "^5.25.0",
+    "@typescript-eslint/parser": "^5.43.0",
+    "@typescript-eslint/typescript-estree": "^5.43.0",
+    "eslint": "^8.15.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "jest": "^29.7.0",
+    "prettier": "^2.6.2",
+    "semantic-release": "^19.0.2",
+    "ts-jest": "^29.1.1",
+    "typescript": "^4.8.4"
+  },
+  "dependencies": {
+  },
+  "directories": {
+    "lib": "lib"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
