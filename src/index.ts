@@ -1,11 +1,12 @@
-import {runRequest} from './requests';
-import { InternalAxiosRequestConfig, AxiosResponse, AxiosResponseHeaders } from 'axios';
+import {runRequest, type PM} from './requests';
+import { AxiosRequestConfig, AxiosResponse, AxiosResponseHeaders } from 'axios';
 import axios from 'axios';
 import { Moment } from 'moment';
 import {v4 as uuidv4} from 'uuid';
+import {fdObj, setVariables} from './requests/fd';
 
 declare module "axios" {
-  export interface InternalAxiosRequestConfig {
+  export interface AxiosRequestConfig {
     // custom properties 
     metadata: {
       startTime: Date,
@@ -45,57 +46,58 @@ type Event = {
 }
 
 type Request = {
-  '_id': string,
-  'order': string[],
-  'parentId': '' | string,
-  'parentType': '' | string,
-  'name': '' | string,
-  'events': Event[],
-  'request': {
-    'method': 'GET',
-    'header': [{
-      'key': string,
-      'value': string
-    }],
-    settings: {
+  _id: string,
+  order: string[],
+  parentId: '' | string,
+  parentType: '' | string,
+  name: '' | string,
+  events: Event[],
+  request: {
+    settings?: {
       readTimeout: number,
       connectTimeout: number,
     },
-    'auth': {
+    auth?: {
       username: string,
       password: string,
 
     },
-    'body': {
-      'mode': 'raw',
-      'raw': '',
-      'options': {
-        'raw': {
-          'language': 'json'
+    body?: {
+      mode: 'raw',
+      raw: '',
+      options: {
+        raw: {
+          language: 'json' | 'xml'
         }
       }
     },
-    'url': {
-      'host': string[],
-      'path': [],
-      'raw': '',
-      'query': []
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS' | 'TRACE' | 'CONNECT',
+    header?: {key: string, value: string}[],
+    url: {
+      host: string[],
+      path: string[],
+      raw: '',
+      query: []
     },
-    'description': ''
-  },
+    description?: string,
+  }
 }
 
+// interface Envoronment {
+//   scope: "environments" | 'globals' | 
+// }
+
 interface logRecord {
-  action: string, 
+  action: "SET_LOG_RECORD" | "SET_RUNNING_ITEM" | "ADD_CONSOLE_RECORD" | "START_RUN", 
   args: {
     time?: Moment, 
     runId?: string, 
-    colId?: string, 
+    colId?: string | null, 
     reqId?: string, 
     error?: ExtendedAxiosResponse['error'], 
     status?: string | null, 
     colName?: string, 
-    request?: string, 
+    request?: Request | AxiosRequestConfig, 
     tests?: {[test: string]: string}, 
     passed?: number, 
     failed?: number, 
@@ -105,26 +107,22 @@ interface logRecord {
     message?: string | unknown,
     response?: {
       responseHeaders?: AxiosResponseHeaders,
-      responseBody?: string,
+      responseBody?: {
+        language: string,
+        prettified: boolean,
+        raw: string
+      },
       responseStatus?: number,
       responseDuration?: number // from interceptor
     },
   }
 }
-
-axios.interceptors.request.use(function (config: InternalAxiosRequestConfig) {
+axios.interceptors.request.use(function (config: AxiosRequestConfig) {
   config.metadata = {startTime: new Date()};
   return config;
 }, function (error) {
   return Promise.reject(error);
 });
-
-// axios.interceptors.request.use(function (config: ExtendedInternalAxiosRequestConfig) {
-//   config.metadata = {startTime: new Date()}
-//   return config
-// }, function (error) {
-//   return Promise.reject(error)
-// })
 axios.interceptors.response.use(function (response: AxiosResponse): AxiosResponse {
   response.config.metadata.endTime = new Date()
   response.duration = response.config.metadata.endTime.getTime() - response.config.metadata.startTime.getTime()
@@ -139,11 +137,24 @@ axios.interceptors.response.use(function (response: AxiosResponse): AxiosRespons
 })
 //SET_LOG_RECORD (state, {runId, colId, reqId, error, status, colName, request, tests, passed, failed, duration, url})
 
-const getResponse = async function (request: Request, runId: string, colId: string, logCb: (args: logRecord) => void): Promise<{failed: number, passed: number}> {
+// (environmentId && item.scope === 'environments') {
+//   Object.keys(item.variables).forEach((key) => {
+//     if (!state.environments[environmentId]) {
+//       // Vue.set(state.environments, environmentId, {})
+//       state.environments[environmentId] = {}
+//     }
+//     // Vue.set(state.environments[environmentId], key, item.variables[key])
+//     state.environments[environmentId][key] = item.variables[key]
+//   })
+// const setEnvironment = ({[test: string]: string}) => {
+
+// }
+
+const getResponse = async function (pm: PM, request: Request, runId: string, colId: string, logCb: (args: logRecord) => void): Promise<{failed: number, passed: number}> {
   let passed = 0
   let failed = 0
   // under development
-  const response = await runRequest(colId, request, logCb, undefined) as ExtendedAxiosResponse
+  const response = await runRequest(colId, request, pm, logCb, undefined) as ExtendedAxiosResponse
   if (response && typeof response.tests !== 'undefined') {
     Object.keys(response.tests).forEach((key) => {
       if (response.tests && response.tests[key]) {
@@ -157,7 +168,7 @@ const getResponse = async function (request: Request, runId: string, colId: stri
   logCb({action: 'SET_LOG_RECORD', args: {runId,
     colId,
     reqId: request?._id,
-    request: response?.request,
+    request: request,
     url: response.url,
     tests: response.tests,
     error: response.error,
@@ -168,7 +179,7 @@ const getResponse = async function (request: Request, runId: string, colId: stri
     return {passed, failed}
 }
 //action: string, props: {runId: string, colId: string, passed: number, failed: number}
-const runCollection = function (runId: string, colId: string, getCollection: (colId: string) => any, 
+const runCollection = function (runId: string, pm: PM, colId: string, getCollection: (colId: string) => any, 
   getRequests: (arg: string) => Promise<Request[]>,
   cancelExec: boolean,
   logCb: (args: logRecord) => void,
@@ -190,7 +201,7 @@ const runCollection = function (runId: string, colId: string, getCollection: (co
             if (cancelExec) {
               return Promise.resolve()
             }
-            return getResponse(x, runId, colId, logCb).then((tests) => {
+            return getResponse(pm, x, runId, colId, logCb).then((tests) => {
               if (tests) {
                 failed = tests.failed + failed
                 passed = tests.passed + passed
@@ -210,16 +221,20 @@ const runCollection = function (runId: string, colId: string, getCollection: (co
   });
 }
 
-const createRun = (collectionIds: string[], getCollection: (colId: string) => any, getRequests: (arg: string) => Promise<Request[]>, logCb: (params: logRecord) => void): {runId: string, cancel: () => void, exec: () => Promise<string>} => {
+const createRun = (environmentId: string, envVariables: object, collectionIds: string[], getCollection: (colId: string) => any, getRequests: (arg: string) => Promise<Request[]>, logCb: (params: logRecord) => void): {runId: string, cancel: () => void, exec: () => Promise<string>} => {
   let cancelExec = false
+  // setVariables({environmentId: string: updates: [{scope: "environments", variables: envVariables}]});
+  setVariables({collectionId: undefined, environmentId, updates: [{scope: "environments", variables: envVariables}]});
+  const pm = fdObj();
+  pm.tests = {};
   const runId = uuidv4()
-  // commit('START_RUN', {runId})
+  logCb({action: 'START_RUN', args: {runId}});
   const cancel = () => {
     cancelExec = true
   }
   const exec = () => {
     return new Promise<string>((resolve, reject) => {
-      const runId = uuidv4()
+      // const runId = uuidv4()
       let failed = 0
       let passed = 0
       // run collections sequentially
@@ -228,7 +243,7 @@ const createRun = (collectionIds: string[], getCollection: (colId: string) => an
           p.then(() => {
             // commit('SET_RUNNING_ITEM', {runId, colId})
             logCb({action: 'SET_RUNNING_ITEM', args: {runId, colId: x}});
-            runCollection(runId, x, getCollection, getRequests, cancelExec, logCb).then((tests: { failed: number; passed: number }) => {
+            runCollection(runId, pm, x, getCollection, getRequests, cancelExec, logCb).then((tests: { failed: number; passed: number }) => {
               if (tests) {
                 failed = tests.failed + failed
                 passed = tests.passed + passed
@@ -237,6 +252,7 @@ const createRun = (collectionIds: string[], getCollection: (colId: string) => an
           }),
         Promise.resolve()
       ).then(() => {
+        logCb({action: 'SET_RUNNING_ITEM', args: {runId, colId: null}});
         resolve(runId as string)
       }).catch((err) => {
         reject(err)
@@ -246,4 +262,4 @@ const createRun = (collectionIds: string[], getCollection: (colId: string) => an
   return { runId, cancel, exec }
 }
 
-export { createRun, Request, ExtendedAxiosResponse, Event, logRecord, axios }
+export { createRun, runRequest, Request, ExtendedAxiosResponse, Event, logRecord, axios }

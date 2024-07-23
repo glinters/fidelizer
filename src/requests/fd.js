@@ -3,7 +3,7 @@ import xml2js from 'xml-js';
 
 const state = {
   collections: {},
-  environments: {},
+  environment: {},
   globals: {},
   loading: {
     status: false,
@@ -38,13 +38,14 @@ const setVariables = ({collectionId, environmentId, updates}) => {
         state.globals[key] = item.variables[key]
       })
     } else if (environmentId && item.scope === 'environments') {
+      state.currentEnvironmentId = environmentId;
       Object.keys(item.variables).forEach((key) => {
-        if (!state.environments[environmentId]) {
-          // Vue.set(state.environments, environmentId, {})
-          state.environments[environmentId] = {}
-        }
+        // if (!state.environment) {
+        //   // Vue.set(state.environments, environmentId, {})
+        //   state.environment = {}
+        // }
         // Vue.set(state.environments[environmentId], key, item.variables[key])
-        state.environments[environmentId][key] = item.variables[key]
+        state.environment[key] = item.variables[key]
       })
     }
   })
@@ -143,7 +144,7 @@ const fdObj = function () {
       get (name) {
         return this.modifiedVariables[name] || this.variables[name]
       },
-      variables: state.environments[state.currentEnvironmentId] || {},
+      variables: state.environment || {},
       modifiedVariables: {}
     },
     variables: {

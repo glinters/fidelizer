@@ -1,5 +1,5 @@
 import {type Request, type Event, type ExtendedAxiosResponse, type logRecord, axios} from '../index';
-import {AxiosHeaders, AxiosRequestHeaders, AxiosRequestConfig, AxiosResponseHeaders, CancelTokenSource} from 'axios'
+import {AxiosRequestHeaders, AxiosRequestConfig, AxiosResponseHeaders, CancelTokenSource} from 'axios'
 // import axios from 'axios';
 import { NodeVM } from 'vm2';
 import moment, { Moment } from'moment';
@@ -76,16 +76,16 @@ const formatXml = (xml: string): string => {
 const replaceVariables = (options: AxiosRequestConfig, pm: PM) => {
   // eslint-disable-next-line
   let tokenPattern = new RegExp('\{{(.*?)\}}', 'g')
-  options.data = options.data.replace(tokenPattern, function ($0: string, $1: string) {
+  options.data = options.data ? options.data.replace(tokenPattern, function ($0: string, $1: string) {
     // console.log('oho', $0, $1)
     // console.log(getters.getPmObj.variables.get($1))
     return pm.variables.get($1)
-  })
+  }) : options.data
   options.url = options.url ? options.url.replace(tokenPattern, function ($0: string, $1: string) {
     // console.log('oho', $0, $1)
     // console.log(getters.getPmObj.variables.get($1))
     return pm.variables.get($1)
-  }) : undefined
+  }) : options.url
   if (options.auth) {
     options.auth.username = options.auth.username.replace(tokenPattern, function ($0: string, $1: string) {
       // console.log('oho', $0, $1)
@@ -101,13 +101,13 @@ const replaceVariables = (options: AxiosRequestConfig, pm: PM) => {
   return options
 }
 
-const setOptions = (item: Request, pm: PM, cancelTokenSource: CancelTokenSource | undefined): AxiosRequestConfig => {
+const setOptions = (req: Request, pm: PM, cancelTokenSource: CancelTokenSource | undefined): AxiosRequestConfig => {
   const options = {} as AxiosRequestConfig
-  options.url = item.request.url.raw
-  options.data = item.request.body.raw
+  options.url = req.request?.url?.raw
+  options.data = req.request?.body?.raw
   options.cancelToken = cancelTokenSource ? cancelTokenSource.token : undefined
-  options.headers = item.request.header ? Object.assign({}, ...item.request.header.map(h => {
-    const val = {} as AxiosHeaders
+  options.headers = req.request.header ? Object.assign({}, ...req.request.header.map(h => {
+    const val = {} as AxiosRequestHeaders
     if (h.key && h.value) {
       val[h.key] = h.value
       return val
@@ -115,21 +115,24 @@ const setOptions = (item: Request, pm: PM, cancelTokenSource: CancelTokenSource 
       return h
     }
   })) : {} as AxiosRequestHeaders
-  if (item.request.auth && item.request.auth.username) {
+  if (typeof options.headers !== 'undefined' && req.request.body?.options?.raw?.language === 'json') {
+    options.headers['Content-Type'] = 'application/json'
+  }
+  if (req.request.auth && req.request.auth.username) {
     options.auth = {
-      username: item.request.auth.username,
-      password: item.request.auth.password
+      username: req.request.auth.username,
+      password: req.request.auth.password
     }
   }
-  if (item.request.settings && item.request.settings.readTimeout) {
-    options.timeout = item.request.settings.readTimeout > 0 ? item.request.settings.readTimeout * 1000 : 0
+  if (req.request.settings && req.request.settings.readTimeout) {
+    options.timeout = req.request.settings.readTimeout > 0 ? req.request.settings.readTimeout * 1000 : 0
   }
-  if (item.request.settings && item.request.settings.connectTimeout && item.request.settings.connectTimeout > 0) {
+  if (req.request.settings && req.request.settings.connectTimeout && req.request.settings.connectTimeout > 0) {
     // console.log('set connect timeout')
-    options.httpAgent = new http.Agent({ timeout: item.request.settings.connectTimeout * 1000 })
-    options.httpsAgent = new https.Agent({ timeout: item.request.settings.connectTimeout, rejectUnauthorized: false })
+    options.httpAgent = new http.Agent({ timeout: req.request.settings.connectTimeout * 1000 })
+    options.httpsAgent = new https.Agent({ timeout: req.request.settings.connectTimeout, rejectUnauthorized: false })
   }
-  options.method = item.request.method
+  options.method = req.request.method
   if (!options.httpsAgent) {
     options.httpsAgent = new https.Agent({ rejectUnauthorized: false })
   }
@@ -143,7 +146,7 @@ const runScript = (logCb: (args: logRecord) => void, pm: PM, vm: NodeVM, code = 
     try {
       vm.run(code, 'moment')
     } catch (err) {
-      logCb({action: 'SET_LOG_RECORD', args: {time: moment(), type: 'error', message: err}})
+      logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(), type: 'error', message: err}})
       return callback(err)
     }
     if (pm.reqTasks.length > 0) {
@@ -174,17 +177,18 @@ const mapLogRecords = (data: any): string => {
   }).join(' ')
 }
 
-const runScriptProcess = async function (collectionId:string, event: Event | undefined, logCb: (args: logRecord) => void, response: ExtendedAxiosResponse | undefined): Promise<PM> {
+const runScriptProcess = function (collectionId:string, event: Event | undefined, pm: PM, logCb: (args: logRecord) => void, response: ExtendedAxiosResponse | undefined): Promise<PM> {
   return new Promise((resolve, reject) => {
       // Wrap the code
       if (typeof event === 'undefined') {
-        return reject(new Error('event is undefined'));
+        // return reject(new Error('event is undefined'));
+        return resolve(pm)
       }
       const preCode = 'const {responseBody, responseCode, responseTime, responseHeaders} = pm.response; const {xml2Json, tests, moment, currentEnvironment} = pm;'
 
       const code = preCode + event.script.exec.join('\n')
-      const pm = fdObj() as PM; //PM = postman?!
-      pm.tests = {}
+      // const pm = fdObj() as PM; //PM = postman?!
+      // pm.tests = {}
       // let tests = {}
       if (typeof response !== 'undefined') {
         pm.response.set(response)
@@ -202,19 +206,19 @@ const runScriptProcess = async function (collectionId:string, event: Event | und
         }
       })
       vm.on('console.log', (...data) => {
-        logCb({action: 'SET_LOG_RECORD', args: {time: moment(), type: 'log', message: mapLogRecords(data)}})
+        logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(), type: 'log', message: mapLogRecords(data)}})
       })
       vm.on('console.info', (...data) => {
-        logCb({action: 'SET_LOG_RECORD', args: {time: moment(), type: 'info', message: mapLogRecords(data)}})
+        logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(), type: 'info', message: mapLogRecords(data)}})
       })
       vm.on('console.trace', (...data) => {
-        logCb({action: 'SET_LOG_RECORD', args: {time: moment(), type: 'trace', message: mapLogRecords(data)}})
+        logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(), type: 'trace', message: mapLogRecords(data)}})
       })
       vm.on('console.warn', (data) => {
-        logCb({action: 'SET_LOG_RECORD', args: {time: moment(), type: 'warn', message: data}})
+        logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(), type: 'warn', message: data}})
       })
       vm.on('console.error', (data) => {
-        logCb({action: 'SET_LOG_RECORD', args: {time: moment(), type: 'error', message: data}})
+        logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(), type: 'error', message: data}})
       })
 
       runScript(logCb, pm, vm, code, (err) => {
@@ -246,44 +250,49 @@ const runScriptProcess = async function (collectionId:string, event: Event | und
   };
 
 
-const runRequest = function (collectionId:string, request: Request, logCb: (args: logRecord) => void, cancelTokenSource: CancelTokenSource | undefined): Promise<Partial<ExtendedAxiosResponse>> {
-    return new Promise((resolve, reject) => {
-      if (typeof request === 'undefined') {
-        return reject(new Error('Request Item not provided'))
-      }
+const runRequest = function (collectionId:string, request: Request, pm: PM | undefined, logCb: (args: logRecord) => void, cancelTokenSource: CancelTokenSource | undefined): Promise<Partial<ExtendedAxiosResponse>> {
+    return new Promise((resolve) => {
+      // if (typeof request === 'undefined') {
+      //   return reject(new Error('Request Item not provided'))
+      // }
       let event = request.events ? request.events.find(e => e.listen === 'prerequest') : undefined
-      runScriptProcess(collectionId, event, logCb, undefined).then((pm) => {
+      if (typeof pm === 'undefined') {
+        pm = fdObj() as PM; //PM = postman?!
+        pm.tests = {} 
+      }
+      // const pm = fdObj() as PM; //PM = postman?!
+      runScriptProcess(collectionId, event, pm, logCb, undefined).then((pm) => {
         const preTests = pm.tests;
         const options = setOptions(request, pm, cancelTokenSource);
           axios(options).then(resp => {
-            const response = resp as ExtendedAxiosResponse;
+            const response = resp as unknown as ExtendedAxiosResponse;
             response._id = request._id;
             response.url = options.url;
             response.requestId = request._id;
             // response.data = {prettified: false, raw: response.data}
-            if (response.headers['content-type'].includes('xml')) {
-              response.data = {prettified: true, raw: formatXml(resp.data), language: 'xml'};
-            } else if (response.headers['content-type'].includes('html')) {
-              response.data = {prettified: false, raw: resp.data, language: 'html'};
-            } else if (response.headers['content-type'].includes('json')) {
-              response.data = {prettified: false, raw: resp.data, language: 'json'};
+            if (response.headers && response.headers['content-type']?.includes('xml')) {
+              response.data = {prettified: true, raw: formatXml(resp.data.toString()), language: 'xml'};
+            } else if (response.headers && response.headers['content-type']?.includes('html')) {
+              response.data = {prettified: false, raw: resp.data.toString(), language: 'html'};
+            } else if (response.headers && response.headers['content-type']?.includes('json')) {
+              response.data = {prettified: false, raw: resp.data.toString(), language: 'json'};
             } else {
-              response.data = {prettified: false, raw: resp.data, language: 'text'};
+              response.data = {prettified: false, raw: resp.data.toString(), language: 'text'};
             }
-            logCb({action: 'SET_LOG_RECORD', args: {time: moment(),
+            logCb({action: 'ADD_CONSOLE_RECORD', args: {time: moment(),
               type: 'log',
               message: '',
-              request: JSON.stringify(options),
+              request: options,
               response: {
-                responseHeaders: resp.headers as AxiosResponseHeaders,
-                responseBody: resp.data.raw,
-                responseStatus: resp.status,
-                responseDuration: resp.duration // from interceptor
+                responseHeaders: response.headers as AxiosResponseHeaders,
+                responseBody: response.data,
+                responseStatus: response.status,
+                responseDuration: response.duration // from interceptor
               }}});
             
             event = request.events.find(e => e.listen === 'test');
             // dispatch('runScript', {event, response}).then((pm) => {
-            runScriptProcess(collectionId, event, logCb, undefined).then((pm) => {
+            runScriptProcess(collectionId, event, pm, logCb, undefined).then((pm) => {
               response.tests = { ...preTests, ...pm.tests }
               // console.log(response)
               resolve(response)
@@ -295,13 +304,14 @@ const runRequest = function (collectionId:string, request: Request, logCb: (args
           }).catch((err) => {
             if (axios.isCancel(err)) {
               err.message = 'Request canceled'
-              logCb({action: 'SET_LOG_RECORD', args: {
-                time: moment(), type: 'log', message: 'Request canceled', request: JSON.stringify(options)
+              logCb({action: 'ADD_CONSOLE_RECORD', args: {
+                time: moment(), type: 'log', message: 'Request canceled', request: request
               }});
             } else {
-              logCb({action: 'SET_LOG_RECORD', args: {
-                time: moment(), type: 'error', message: err.message || 'Unexpected error', request: JSON.stringify(options)
-              }});
+              console.error(err);
+              // logCb({action: 'ADD_CONSOLE_RECORD', args: {
+              //   time: moment(), type: 'error', message: err.message || 'Unexpected error', request
+              // }});
             }
             resolve({
               _id: request._id,
@@ -315,7 +325,7 @@ const runRequest = function (collectionId:string, request: Request, logCb: (args
             });
           })
       }).catch((err) => {
-        // console.log('reject run script')
+        console.log(err)
         setTimeout(() => {
           resolve({
             _id: request._id,
@@ -331,4 +341,4 @@ const runRequest = function (collectionId:string, request: Request, logCb: (args
     })
   }
 
-export { runRequest }
+export { runRequest, type PM }
