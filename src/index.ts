@@ -262,4 +262,4 @@ const createRun = (environmentId: string, envVariables: object, collectionIds: s
   return { runId, cancel, exec }
 }
 
-export { createRun, runRequest, Request, ExtendedAxiosResponse, Event, logRecord, axios }
+export { createRun, runRequest, Request, ExtendedAxiosResponse, Event, logRecord, axios, fdObj as fidelizer }

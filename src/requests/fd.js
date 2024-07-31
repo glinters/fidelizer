@@ -109,7 +109,7 @@ const fdObj = function () {
       },
       // raw: '',
       // format: '',
-      responseCode: {}, // responseCode.code
+      responseCode: undefined, // responseCode.code
       responseBody: '',
       responseHeaders: {},
       responseTime: undefined

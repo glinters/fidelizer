@@ -14,10 +14,10 @@ interface PM {
      set(response: any): void;
      json(): any; 
      text(): string; 
-     responseCode: object; 
+     responseCode?: undefined | number; 
      responseBody: string; 
      responseHeaders: object; 
-     responseTime: undefined; 
+     responseTime: number | undefined; 
     },
   globals: {
     set (name: string, value: any): void;
@@ -98,6 +98,17 @@ const replaceVariables = (options: AxiosRequestConfig, pm: PM) => {
       return pm.variables.get($1)
     })
   }
+  if (typeof options.headers !== undefined) {
+    for (const key of Object.keys(options.headers || {})) {
+      console.log(`${key} is string: ${typeof options.headers?.[key] ==='string'}`)
+      if (typeof options.headers?.[key] ==='string') {
+        options.headers[key] = options?.headers?.[key]?.toString().replace(tokenPattern, function ($0: string, $1: string) {
+          console.log(`${options.headers?.[key]} replaced with: ${pm.variables.get($1)}`);
+          return pm.variables.get($1)
+        })
+      }
+    }
+  }
   return options
 }
 
@@ -105,6 +116,8 @@ const setOptions = (req: Request, pm: PM, cancelTokenSource: CancelTokenSource |
   const options = {} as AxiosRequestConfig
   options.url = req.request?.url?.raw
   options.data = req.request?.body?.raw
+  options.transformResponse = x => x
+  options.validateStatus = () => true
   options.cancelToken = cancelTokenSource ? cancelTokenSource.token : undefined
   options.headers = req.request.header ? Object.assign({}, ...req.request.header.map(h => {
     const val = {} as AxiosRequestHeaders
@@ -288,11 +301,10 @@ const runRequest = function (collectionId:string, request: Request, pm: PM | und
                 responseBody: response.data,
                 responseStatus: response.status,
                 responseDuration: response.duration // from interceptor
-              }}});
-            
+              }}});            
             event = request.events.find(e => e.listen === 'test');
             // dispatch('runScript', {event, response}).then((pm) => {
-            runScriptProcess(collectionId, event, pm, logCb, undefined).then((pm) => {
+            runScriptProcess(collectionId, event, pm, logCb, response).then((pm) => {
               response.tests = { ...preTests, ...pm.tests }
               // console.log(response)
               resolve(response)
